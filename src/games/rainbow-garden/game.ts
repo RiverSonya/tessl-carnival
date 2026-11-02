@@ -2,13 +2,20 @@ import { canvasFont, recordScore, theme, type CarnivalGame } from '../../carniva
 
 const { width: WIDTH, height: HEIGHT } = theme.canvas;
 
+/** Flowers in the garden at the start of a round. */
 export const FLOWER_COUNT = 14;
+/** Extra flowers the garden grows for every rainbow caught. */
+export const FLOWERS_PER_LEVEL = 3;
+/** The garden never grows past this many flowers. */
+export const MAX_FLOWER_COUNT = 32;
 export const FLOWER_RADIUS = 14;
 export const PLAYER_RADIUS = 14;
 export const PLAYER_SPEED = 220;
 export const RAINBOW_RADIUS = 30;
 export const RAINBOW_TIME = 5;
-export const FLOWERS_PER_RAINBOW = 5;
+/** A rainbow appears after a random number of picks, from the fewest to the most. */
+export const FEWEST_FLOWERS_PER_RAINBOW = 3;
+export const MOST_FLOWERS_PER_RAINBOW = 7;
 export const FLOWER_POINTS = 10;
 export const RAINBOW_POINTS = 50;
 /** Keeps flowers and rainbows clear of the score line at the bottom. */
@@ -41,6 +48,8 @@ export interface RainbowGardenState {
   rainbow: Rainbow | null;
   /** Flowers picked since the last rainbow. */
   picked: number;
+  /** Picks needed for the next rainbow, kept secret from the player. */
+  rainbowAt: number;
   score: number;
   rainbowsCaught: number;
   phase: 'playing' | 'over';
@@ -83,18 +92,35 @@ function plantFlower(state: RainbowGardenState, random: Random): Flower {
   return { ...spot, kind: FLOWER_KINDS[Math.floor(random() * FLOWER_KINDS.length)] };
 }
 
+/** How many flowers the garden holds once `rainbowsCaught` rainbows are caught. */
+export function flowerCount(rainbowsCaught: number): number {
+  return Math.min(FLOWER_COUNT + rainbowsCaught * FLOWERS_PER_LEVEL, MAX_FLOWER_COUNT);
+}
+
+/** Picks a random number of flowers, from the fewest to the most, before the next rainbow. */
+export function rollRainbowAt(random: Random = Math.random): number {
+  const spread = MOST_FLOWERS_PER_RAINBOW - FEWEST_FLOWERS_PER_RAINBOW + 1;
+  return FEWEST_FLOWERS_PER_RAINBOW + Math.min(Math.floor(random() * spread), spread - 1);
+}
+
+function refill(state: RainbowGardenState, random: Random) {
+  const count = flowerCount(state.rainbowsCaught);
+  while (state.flowers.length < count) state.flowers.push(plantFlower(state, random));
+}
+
 export function createState(random: Random = Math.random): RainbowGardenState {
   const state: RainbowGardenState = {
     player: { x: WIDTH / 2, y: FIELD_BOTTOM / 2 },
     flowers: [],
     rainbow: null,
     picked: 0,
+    rainbowAt: rollRainbowAt(random),
     score: 0,
     rainbowsCaught: 0,
     phase: 'playing',
     endReason: null,
   };
-  for (let i = 0; i < FLOWER_COUNT; i++) state.flowers.push(plantFlower(state, random));
+  refill(state, random);
   return state;
 }
 
@@ -148,7 +174,8 @@ export function step(
       state.score += RAINBOW_POINTS;
       state.rainbowsCaught += 1;
       state.rainbow = null;
-      while (state.flowers.length < FLOWER_COUNT) state.flowers.push(plantFlower(state, random));
+      // Each rainbow caught grows a fuller garden to pick through and dodge.
+      refill(state, random);
       return;
     }
     state.rainbow.timeLeft = Math.max(state.rainbow.timeLeft - dt, 0);
@@ -167,11 +194,12 @@ export function step(
   }
   state.flowers = remaining;
 
-  if (state.picked >= FLOWERS_PER_RAINBOW) {
+  if (state.picked >= state.rainbowAt) {
     state.picked = 0;
+    state.rainbowAt = rollRainbowAt(random);
     spawnRainbow(state, random);
   } else {
-    while (state.flowers.length < FLOWER_COUNT) state.flowers.push(plantFlower(state, random));
+    refill(state, random);
   }
 }
 
@@ -280,7 +308,7 @@ function draw(ctx: CanvasRenderingContext2D, state: RainbowGardenState) {
       HEIGHT - 20,
     );
   } else {
-    ctx.fillText(`Flowers ${state.picked}/${FLOWERS_PER_RAINBOW}`, WIDTH / 2, HEIGHT - 20);
+    ctx.fillText(`Flowers ${state.picked}`, WIDTH / 2, HEIGHT - 20);
   }
   ctx.fillStyle = colors.text;
   ctx.textAlign = 'right';
@@ -306,7 +334,7 @@ export const rainbowGarden: CarnivalGame = {
   id: 'rainbow-garden',
   name: 'Rainbow Garden',
   description:
-    'Pick flowers, and every fifth one makes a rainbow: reach it in 5 seconds without touching a flower.',
+    'Pick flowers until a rainbow pops up, then reach it in 5 seconds without touching a flower.',
 
   start(canvas) {
     const ctx = canvas.getContext('2d');
