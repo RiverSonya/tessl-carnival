@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FLOWERS_PER_RAINBOW,
+  FEWEST_FLOWERS_PER_RAINBOW,
+  FLOWERS_PER_LEVEL,
   FLOWER_COUNT,
+  MAX_FLOWER_COUNT,
+  MOST_FLOWERS_PER_RAINBOW,
   FLOWER_POINTS,
   PLAYER_RADIUS,
   PLAYER_SPEED,
   RAINBOW_POINTS,
   RAINBOW_TIME,
   createState,
+  flowerCount,
+  rollRainbowAt,
   spawnRainbow,
   step,
   touchesFlower,
@@ -60,14 +65,57 @@ describe('rainbow garden', () => {
     expect(state.flowers.some((f) => touchesFlower(state.player, f))).toBe(false);
   });
 
-  it('makes a rainbow appear after every fifth flower', () => {
+  it('makes a rainbow appear once the secret number of flowers is picked', () => {
     const state = createState();
-    state.picked = FLOWERS_PER_RAINBOW - 1;
+    state.rainbowAt = 4;
+    state.picked = 3;
     state.flowers = [underfoot(state)];
     step(state, still, 0);
     expect(state.picked).toBe(0);
     expect(state.rainbow).not.toBeNull();
     expect(state.rainbow!.timeLeft).toBe(RAINBOW_TIME);
+  });
+
+  it('holds the rainbow back until enough flowers are picked', () => {
+    const state = createState();
+    state.rainbowAt = 6;
+    state.picked = 4;
+    state.flowers = [underfoot(state)];
+    step(state, still, 0);
+    expect(state.picked).toBe(5);
+    expect(state.rainbow).toBeNull();
+  });
+
+  it('rolls a new number of flowers for each rainbow', () => {
+    const state = createState();
+    state.rainbowAt = 1;
+    state.flowers = [underfoot(state)];
+    step(state, still, 0, () => 0.999);
+    expect(state.rainbowAt).toBe(MOST_FLOWERS_PER_RAINBOW);
+  });
+
+  it('picks the number of flowers per rainbow at random, within range', () => {
+    expect(rollRainbowAt(() => 0)).toBe(FEWEST_FLOWERS_PER_RAINBOW);
+    expect(rollRainbowAt(() => 0.999)).toBe(MOST_FLOWERS_PER_RAINBOW);
+    const seen = new Set<number>();
+    for (let i = 0; i < 500; i++) seen.add(rollRainbowAt());
+    expect(Math.min(...seen)).toBe(FEWEST_FLOWERS_PER_RAINBOW);
+    expect(Math.max(...seen)).toBe(MOST_FLOWERS_PER_RAINBOW);
+    expect(seen.size).toBe(MOST_FLOWERS_PER_RAINBOW - FEWEST_FLOWERS_PER_RAINBOW + 1);
+  });
+
+  it('grows more flowers for every rainbow caught, up to a limit', () => {
+    expect(flowerCount(0)).toBe(FLOWER_COUNT);
+    expect(flowerCount(2)).toBe(FLOWER_COUNT + 2 * FLOWERS_PER_LEVEL);
+    expect(flowerCount(100)).toBe(MAX_FLOWER_COUNT);
+  });
+
+  it('keeps the bigger garden full while picking', () => {
+    const state = createState();
+    state.rainbowsCaught = 2;
+    state.flowers = [underfoot(state)];
+    step(state, still, 0);
+    expect(state.flowers).toHaveLength(flowerCount(2));
   });
 
   it('puts the rainbow somewhere new, away from the player', () => {
@@ -77,7 +125,7 @@ describe('rainbow garden', () => {
     expect(Math.hypot(rainbow!.x - player.x, rainbow!.y - player.y)).toBeGreaterThan(50);
   });
 
-  it('scores a rainbow the player reaches in time and refills the garden', () => {
+  it('scores a rainbow the player reaches in time and grows a fuller garden', () => {
     const state = createState();
     state.flowers = [];
     state.rainbow = { x: state.player.x + 10, y: state.player.y, timeLeft: 1 };
@@ -85,7 +133,7 @@ describe('rainbow garden', () => {
     expect(state.score).toBe(RAINBOW_POINTS);
     expect(state.rainbowsCaught).toBe(1);
     expect(state.rainbow).toBeNull();
-    expect(state.flowers).toHaveLength(FLOWER_COUNT);
+    expect(state.flowers).toHaveLength(FLOWER_COUNT + FLOWERS_PER_LEVEL);
     expect(state.phase).toBe('playing');
   });
 
